@@ -11,6 +11,7 @@ from opensora.utils.config_utils import parse_configs
 from opensora.utils.misc import to_torch_dtype
 from opensora.acceleration.parallel_states import set_sequence_parallel_group
 from colossalai.cluster import DistCoordinator
+import habana_frameworks.torch.core
 
 
 def load_prompts(prompt_path):
@@ -40,9 +41,10 @@ def main():
     # 2. runtime variables
     # ======================================================
     torch.set_grad_enabled(False)
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    #torch.backends.cuda.matmul.allow_tf32 = True
+    #torch.backends.cudnn.allow_tf32 = True
+    #device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device('hpu')
     dtype = to_torch_dtype(cfg.dtype)
     set_random_seed(seed=cfg.seed)
     prompts = load_prompts(cfg.prompt_path)

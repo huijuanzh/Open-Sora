@@ -17,7 +17,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
-import xformers.ops
+#import xformers.ops
 from einops import rearrange
 from timm.models.vision_transformer import Mlp
 
@@ -275,6 +275,7 @@ class MultiHeadCrossAttention(nn.Module):
         # query/value: img tokens; key: condition; mask: if padding tokens
         B, N, C = x.shape
 
+        '''
         q = self.q_linear(x).view(1, -1, self.num_heads, self.head_dim)
         kv = self.kv_linear(cond).view(1, -1, 2, self.num_heads, self.head_dim)
         k, v = kv.unbind(2)
@@ -283,8 +284,22 @@ class MultiHeadCrossAttention(nn.Module):
         if mask is not None:
             attn_bias = xformers.ops.fmha.BlockDiagonalMask.from_seqlens([N] * B, mask)
         x = xformers.ops.memory_efficient_attention(q, k, v, p=self.attn_drop.p, attn_bias=attn_bias)
+        '''
+        #enable for gaudiFusedSDPA to replace xformer
+        q = self.q_linear(x).view(B, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        kv = self.kv_linear(cond).view(B, -1, 2, self.num_heads, self.head_dim)
+        k, v = kv.unbind(2)
+        k = k.reshape(B, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.reshape(B, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        attn_bias = None
+        import habana_frameworks.torch.hpu as ht
+        from habana_frameworks.torch.hpex.kernels import FusedSDPA
+        with ht.sdp_kernel(enable_recompute = False):
+            x = FusedSDPA.apply(q, k, v, None, self.attn_drop.p, False, None)
+        x = rearrange(x, "a c b d -> a b c d")
 
-        x = x.view(B, -1, C)
+        x = x.reshape(B, -1, C)
+        #x = x.view(B, -1, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
